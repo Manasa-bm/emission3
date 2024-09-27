@@ -12,8 +12,8 @@
           "*.log", 
           "node_modules/**", 
           "__pycache__/**",
-          "assets/**",   // Exclude any large static files
-          "*.csv"        // If you use large data files, you can exclude them
+          "assets/**",   
+          "*.csv"        
         ]
       }
     }
