@@ -7,6 +7,9 @@ from sklearn.metrics import mean_absolute_error
 import matplotlib.pyplot as plt
 import gym  # Reinforcement Learning Environment
 import logging  # Logging Library
+from fastapi import FastAPI, HTTPException
+from pydantic import BaseModel
+import uvicorn
 
 # ------------------------ Logging Setup ------------------------ #
 logging.basicConfig(level=logging.INFO, 
@@ -60,99 +63,130 @@ logging.info("Starting Reinforcement Learning for Emission Alternatives")
 class EmissionEnv(gym.Env):
     def __init__(self):
         super(EmissionEnv, self).__init__()
-        self.state = [0]  # Placeholder for the initial state (e.g., emission level)
-        self.action_space = gym.spaces.Discrete(3)  # 3 alternatives: renewable, efficiency, electrification
-        self.observation_space = gym.spaces.Box(low=0, high=np.inf, shape=(1,), dtype=np.float32)
+        try:
+            self.state = [0]  # Placeholder for the initial state (e.g., emission level)
+            self.action_space = gym.spaces.Discrete(3)  # 3 alternatives: renewable, efficiency, electrification
+            self.observation_space = gym.spaces.Box(low=0, high=np.inf, shape=(1,), dtype=np.float32)
+            logging.info("Emission environment initialized successfully")
+        except Exception as e:
+            logging.error(f"Error initializing EmissionEnv: {e}")
 
     def step(self, action):
-        emission_reduction = self._get_emission_reduction(action)
-        new_state = self.state[0] - emission_reduction
-        reward = emission_reduction
-        done = new_state <= 0
-        self.state = [new_state]
-        return np.array(self.state), reward, done, {}
+        try:
+            emission_reduction = self._get_emission_reduction(action)
+            new_state = self.state[0] - emission_reduction
+            reward = emission_reduction
+            done = new_state <= 0
+            self.state = [new_state]
+            return np.array(self.state), reward, done, {}
+        except Exception as e:
+            logging.error(f"Error in EmissionEnv step function: {e}")
+            return None, 0, True, {}
 
     def reset(self):
-        self.state = [np.random.uniform(50, 100)]  # Random initial emission level
-        return np.array(self.state)
+        try:
+            self.state = [np.random.uniform(50, 100)]  # Random initial emission level
+            return np.array(self.state)
+        except Exception as e:
+            logging.error(f"Error in EmissionEnv reset function: {e}")
+            return np.array([0])
 
     def _get_emission_reduction(self, action):
-        if action == 0:  # Renewable energy
-            return np.random.uniform(15, 25)
-        elif action == 1:  # Efficiency improvement
-            return np.random.uniform(10, 20)
-        elif action == 2:  # Electrification
-            return np.random.uniform(20, 30)
+        try:
+            if action == 0:  # Renewable energy
+                return np.random.uniform(15, 25)
+            elif action == 1:  # Efficiency improvement
+                return np.random.uniform(10, 20)
+            elif action == 2:  # Electrification
+                return np.random.uniform(20, 30)
+        except Exception as e:
+            logging.error(f"Error in _get_emission_reduction: {e}")
+            return 0
 
 # Q-Learning Agent
 class QLearningAgent:
     def __init__(self, env, learning_rate=0.1, discount_factor=0.95, exploration_rate=1.0, exploration_decay=0.995):
-        self.env = env
-        self.q_table = np.zeros((100, env.action_space.n))  # Q-table for state-action values
-        self.learning_rate = learning_rate
-        self.discount_factor = discount_factor
-        self.exploration_rate = exploration_rate
-        self.exploration_decay = exploration_decay
+        try:
+            self.env = env
+            self.q_table = np.zeros((100, env.action_space.n))  # Q-table for state-action values
+            self.learning_rate = learning_rate
+            self.discount_factor = discount_factor
+            self.exploration_rate = exploration_rate
+            self.exploration_decay = exploration_decay
+            logging.info("Q-Learning Agent initialized successfully")
+        except Exception as e:
+            logging.error(f"Error initializing QLearningAgent: {e}")
 
     def train(self, episodes=1000):
-        for episode in range(episodes):
-            state = self.env.reset()
-            done = False
-            while not done:
-                if np.random.uniform(0, 1) < self.exploration_rate:
-                    action = self.env.action_space.sample()
-                else:
-                    action = np.argmax(self.q_table[int(state[0])])
+        try:
+            for episode in range(episodes):
+                state = self.env.reset()
+                done = False
+                while not done:
+                    if np.random.uniform(0, 1) < self.exploration_rate:
+                        action = self.env.action_space.sample()
+                    else:
+                        action = np.argmax(self.q_table[int(state[0])])
 
-                next_state, reward, done, _ = self.env.step(action)
+                    next_state, reward, done, _ = self.env.step(action)
 
-                self.q_table[int(state[0]), action] += self.learning_rate * (
-                    reward + self.discount_factor * np.max(self.q_table[int(next_state[0])]) - self.q_table[int(state[0]), action]
-                )
+                    self.q_table[int(state[0]), action] += self.learning_rate * (
+                        reward + self.discount_factor * np.max(self.q_table[int(next_state[0])]) - self.q_table[int(state[0]), action]
+                    )
 
-                state = next_state
+                    state = next_state
 
-            self.exploration_rate *= self.exploration_decay
+                self.exploration_rate *= self.exploration_decay
+
+            logging.info("Q-Learning Agent training completed")
+        except Exception as e:
+            logging.error(f"An error occurred during RL training: {e}")
 
 # Initialize environment and agent
 env = EmissionEnv()
 agent = QLearningAgent(env)
-logging.info("Q-Learning Agent initialized")
 
 # Train agent
 try:
     agent.train(episodes=1000)
-    logging.info("Q-Learning Agent training completed")
 except Exception as e:
-    logging.error(f"An error occurred during RL training: {e}")
+    logging.error(f"An error occurred during agent training: {e}")
 
-# ------------------------ Part 3: Deployable API ------------------------ #
+# ------------------------ Part 3: Deployable API with FastAPI ------------------------ #
 
-from flask import Flask, request, jsonify
+app = FastAPI()
 
-app = Flask(__name__)
+# Define input data model
+class EmissionInput(BaseModel):
+    feature1: float
+    feature2: float
+    # Add more features as per your dataset
 
-@app.route('/predict', methods=['POST'])
-def predict_emission():
+@app.post('/predict')
+def predict_emission(data: EmissionInput):
     try:
-        data = request.get_json()
-        input_data = pd.DataFrame([data])
+        # Convert input to DataFrame
+        input_data = pd.DataFrame([data.dict()])
+
+        # Predict emission using trained model
         emission_prediction = rf_model.predict(input_data)[0]
 
-        state = [emission_prediction]
-        action = np.argmax(agent.q_table[int(state[0])])
+        # Suggest a low-emission alternative using the RL agent
+        state = [emission_prediction]  # The predicted emission level is used as the RL state
+        action = np.argmax(agent.q_table[int(state[0])])  # Get the best action from the Q-table
         alternatives = {0: "Switch to Renewable Energy", 1: "Improve Efficiency", 2: "Electrification"}
         recommended_action = alternatives[action]
 
-        return jsonify({"predicted_emission": emission_prediction, "recommended_action": recommended_action})
-    
+        # Return prediction and recommendation
+        return {"predicted_emission": emission_prediction, "recommended_action": recommended_action}
+
     except Exception as e:
         logging.error(f"Error during prediction: {e}")
-        return jsonify({"error": "An error occurred during prediction"}), 500
+        raise HTTPException(status_code=500, detail="An error occurred during prediction")
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     try:
-        logging.info("Starting Flask API")
-        app.run(debug=True)
+        logging.info("Starting FastAPI server")
+        uvicorn.run(app, host="0.0.0.0", port=8000)
     except Exception as e:
-        logging.error(f"Error starting Flask API: {e}")
+        logging.error(f"Error starting FastAPI server: {e}")
